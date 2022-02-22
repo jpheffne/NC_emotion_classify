@@ -1,0 +1,784 @@
+---
+title: "Emotion Classification Analysis (Manuscript)"
+author: "Joey Heffner"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: html_document
+---
+
+# Setup
+To run this analysis script you'll have to have the following packages installed (make sure `tidyverse` is updated): 
+
+|Packages1  |Packages2    |Packages3 |Packages4    |
+|:---------:|:-----------:|:--------:|:-----------:|
+|`here`     |`tidyverse`  |`knitr`   |`kableExtra` |
+|`purr`     |`lme4`       |`lmerTest`|`broom.mixed`|
+|`ggrepel`  |`sjPlot`     |`ggridges`|
+
+To install these packages simply use the `install.packages()` function and put each package name in as a string. 
+
+**Note**: If you've already used the `here()` function in another script, you will have to open a new instance of R to ensure the relative paths works for this script (or manually change the paths).
+
+The order of this Markdown will follow the order of results in the Supplement which is published in [TO DO] at the following [DOI]().
+
+```{r setup, include=FALSE}
+# Knitr options
+knitr::opts_chunk$set(echo = FALSE, warnings = FALSE, message = FALSE)
+
+# Save plots or not
+#save_plots <- FALSE  # if you want to generate new plots make TRUE
+load_models <- TRUE   # if you want to load the pre-trained models
+
+# Libraries
+library(here)         # relative paths
+library(tidyverse)    # tidy functions
+library(knitr)        # knit functions
+library(kableExtra)   # extra markdown functions
+library(purrr)        # map functions
+library(lme4)         # mixed-effects regressions
+library(lmerTest)     # mixed-effects regressions
+library(AICcmodavg)   # predictSE()
+library(broom.mixed)  # tidy()
+library(ggrepel)      # geom_text_repel
+library(sjPlot)       # tab_model
+library(rstatix)      # cohen's d
+library(ggridges)     # density plot
+
+## Data
+# Specify relative paths
+dir_analysis <- here()
+dir_parent <- str_remove(dir_analysis, "/analysis")
+dir_raw_data <- str_c(dir_parent, "/data/raw")
+dir_clean_data <- str_c(dir_parent, "/data/behavioral")
+dir_models <- str_c(dir_parent, "/data/oscar")
+dir_data <- str_c(dir_parent, "/data")
+dir_graphs <- str_c(dir_parent, "/graphs")
+dir_supplement <- str_c(dir_parent, "/graphs/supplement")
+```
+
+# Data 
+
+The descriptions for each column of the two dataframes can be found below: 
+
+## Emotion Classification Task
+
+- `sub`: unique subject identifier
+- `trial`: trial number of the `emotion` rating (20 trials)
+- `emotion`: feeling label being rated on the emotion measure (dARM)
+- `valence`: unpleasant (-) or pleasant (+) rating of `emotion` (range -250 to +250)
+- `arousal`:  low (-) or high (+) rating on `emotion` (range -250 to +250)
+- `study`: refers to whether the data was from the `ug`, `pd`, or `pgg` experiment
+
+## Ultimatum Game
+
+- `sub`: unique subject identifier
+- `trial`: trial number of the ultimatum game (20 trials) 
+- `unfairness`: the amount of money kept by the Proposer (out of `1`), ranges equally from fair (Proposer kept `.50`) to severely unfair (Proposer kept `.95`) in increments of `.05`. Each unfairness type is given twice.
+- `valence`: unpleasant (-) or pleasant (+) rating in response to `How do you feel about the Proposer's offer?` (range -250 to +250)
+- `arousal`:  low (-) or high (+) rating in response to `How do you feel about the Proposer's offer?` (range -250 to +250)
+- `choice`: 0 is accept, 1 is reject
+- `study`: refers to whether the data was from the `ug`, `pd`, or `pgg` experiment
+
+## Prisoners' Dilemma
+
+- `sub`: unique subject identifier
+- `trial`: trial number of the prisoners' dilemma (22 trials) 
+- `partner_contribution`: the amount of money given to the common good by their partner, ranges equally from defection (0) to cooperation (1) in increments of `.1`. Each contribution type is given twice. 
+- `valence`: unpleasant (-) or pleasant (+) rating in response to `How do you feel about your partner's contribution?` (range -250 to +250)
+- `arousal`:  low (-) or high (+) rating in response to `How do you feel about your partner's contribution?` (range -250 to +250)
+- `sub_contribution`: the amount of money given to the common good by the subject, ranges from 0 - 1 in increments of `.1`.
+- `sub_contribution_binary`: `sub_contribution` was converted into a binary variable with defect (0 - .49) and cooperate (.50 - 1). 
+- `study`: refers to whether the data was from the `ug`, `pd`, or `pgg` experiment
+
+## Public Goods Game
+
+- `sub`: unique subject identifier
+- `trial`: trial number of the public goods game (22 trials) 
+- `partner_contribution`: the amount of money given to the common good by their partners (collectively), ranges equally from defection (0) to cooperation (3) in increments of `.1`. Each contribution type is given twice. 
+- `valence`: unpleasant (-) or pleasant (+) rating in response to `How do you feel about your partners' contribution?` (range -250 to +250)
+- `arousal`:  low (-) or high (+) rating in response to `How do you feel about your partners' contribution?` (range -250 to +250)
+- `sub_contribution`: the amount of money given to the common good by the subject, ranges from 0 - 1 in increments of `.1`.
+- `sub_contribution_binary`: `sub_contribution` was converted into a binary variable with defect (0 - .49) and cooperate (.50 - 1). 
+- `study`: refers to whether the data was from the `ug`, `pd`, or `pgg` experiment
+
+```{r read_data}
+# Load
+df_emotion <- read_csv(str_c(dir_clean_data, "/emo_classify_all.csv"))
+df_ug <- read_csv(str_c(dir_clean_data, "/ug_data.csv"))
+df_pgg <- read_csv(str_c(dir_clean_data, "/pgg_data.csv"))
+df_pd <- read_csv(str_c(dir_clean_data, "/pd_data.csv"))
+
+# Glimpse of data
+head(df_emotion) %>%
+  kable(caption = "Emotion Classification Glimpse") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+head(df_ug) %>%
+  kable(caption = "Ultimatum Game Glimpse") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+length(unique(df_ug$sub))
+
+head(df_pd) %>%
+  kable(caption = "Prisoners' Dilemma Glimpse") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+length(unique(df_pd$sub))
+
+head(df_pgg) %>%
+  kable(caption = "Public Goods Game Glimpse") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+length(unique(df_pgg$sub))
+```
+
+# Figure 1 - Methods
+
+```{r fig1}
+# Emotion list
+emotion_list <- c("neutral", "surprised", "aroused", "peppy", "enthusiastic", "happy", "satisfied", "relaxed", "calm", "sleepy", "still", "quiet", "sluggish", "sad", "disappointed", "disgusted", "annoyed", "angry", "afraid", "nervous")
+
+plot_width = 6
+plot_height = 6
+
+fig1_data <- df_emotion %>%
+  mutate(emotion = fct_relevel(emotion, emotion_list))
+
+emotion_theme <- theme_bw() + 
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(), 
+        aspect.ratio = 1, 
+        axis.text.x = element_text(size = 22), 
+        axis.text.y = element_text(size = 22),
+        axis.title = element_text(size = 26), 
+        legend.position = "none")
+
+# Fig1a - Blank (not used)
+fig1a_plot <- ggplot(fig1_data, aes(x = valence, y = arousal, color = emotion)) + 
+  geom_point(alpha = 0) +
+  geom_hline(yintercept = 0) + 
+  geom_vline(xintercept = 0) +
+  coord_fixed() + # square
+  scale_y_continuous(name = "Arousal", breaks = seq(-200, 200, by = 100)) +
+  scale_x_continuous(name = "Valence", breaks = seq(-200, 200, by = 100)) +
+  emotion_theme
+fig1a_plot
+
+ggsave(filename = str_c(dir_graphs, "/figure1/fig1a.pdf"), plot=fig1a_plot, width = plot_width, height = plot_height)
+
+# Fig1b - All points
+fig1b_plot <- ggplot(fig1_data, aes(x = valence, y = arousal, color = emotion)) + 
+  geom_point(alpha = .5) +
+  geom_hline(yintercept = 0) + 
+  geom_vline(xintercept = 0) +
+  coord_fixed() + # square
+  scale_y_continuous(name = "Arousal", breaks = seq(-200, 200, by = 100)) +
+  scale_x_continuous(name = "Valence", breaks = seq(-200, 200, by = 100)) +
+  emotion_theme
+fig1b_plot
+
+ggsave(filename = str_c(dir_graphs, "/figure1/fig1b.pdf"), plot=fig1b_plot, width = plot_width, height = plot_height)
+ggsave(filename = str_c(dir_graphs, "/figure1/fig1b.png"), plot=fig1b_plot, width = plot_width, height = plot_height)
+
+
+# Fig1c (not used)
+fig1c_data <- df_emotion %>% 
+  mutate(emotion = fct_relevel(emotion, emotion_list)) %>% 
+  group_by(emotion) %>%
+  dplyr::summarise(meanValence = mean(valence), meanArousal = mean(arousal),
+                   sdValence = sd(valence), sdArousal = sd(arousal), N = n(), 
+                   seValence = sdValence / sqrt(N), seArousal = sdArousal / sqrt(N)) %>%
+  mutate(ciLowerValence = meanValence - qt(1 - (0.05 / 2), N - 1) * seValence,
+         ciUpperValence = meanValence + qt(1 - (0.05 / 2), N - 1) * seValence, 
+         ciLowerArousal = meanArousal - qt(1 - (0.05 / 2), N - 1) * seArousal,
+         ciUpperArousal = meanArousal + qt(1 - (0.05 / 2), N - 1) * seArousal)
+
+fig1c_plot <- ggplot(fig1_data, aes(x = valence, y = arousal, color = emotion)) + geom_point(alpha = .05) + # all data points
+  geom_point(data = fig1c_data, aes(x = meanValence, y = meanArousal, color = emotion), size = 2) + # averages
+  geom_errorbar(data = fig1c_data, aes(x = meanValence, y = meanArousal, ymin = ciLowerArousal, ymax = ciUpperArousal)) + # CIs
+  geom_errorbarh(data = fig1c_data, aes(x = meanValence, y = meanArousal, xmin = ciLowerValence, xmax = ciUpperValence)) + # CIs
+  geom_text_repel(data = fig1c_data, aes(x = meanValence, y = meanArousal, color = emotion, label = emotion), segment.colour = NA, force = 10, show.legend = FALSE, size = 5) + 
+  geom_hline(yintercept = 0) + 
+  geom_vline(xintercept = 0) +
+  coord_fixed() +
+  scale_y_continuous(name = "Arousal", breaks = seq(-200, 200, by = 100)) +
+  scale_x_continuous(name = "Valence", breaks = seq(-200, 200, by = 100)) +
+  emotion_theme
+fig1c_plot
+
+ggsave(filename = str_c(dir_graphs, "/figure1/fig1c.pdf"), plot=fig1c_plot, width = plot_width, height = plot_height)
+
+# If you want the colors used
+colorFig <- ggplot(fig1c_data, aes(x = meanValence, y = meanArousal, color = emotion)) + 
+  geom_point()
+color <- ggplot_build(colorFig)
+colorLabels <- unique(color$data[[1]]["colour"])
+
+# Fig1d - Ultimatum Game
+fig1d_data <- df_ug %>%
+  mutate(choice_fct = case_when(choice == 0 ~ "Accept", choice == 1 ~ "Punish"))
+
+fig1d_plot <- ggplot(fig1d_data, aes(x = valence, y = arousal, color = choice_fct)) + 
+  geom_point(alpha = .5) +
+  geom_hline(yintercept = 0) + 
+  geom_vline(xintercept = 0) +
+  coord_fixed() + # square
+  scale_y_continuous(name = "Arousal", breaks = seq(-200, 200, by = 100)) +
+  scale_x_continuous(name = "Valence", breaks = seq(-200, 200, by = 100)) +
+  scale_color_manual(values = c("#00BFC4", "#F8766D")) + 
+  emotion_theme
+fig1d_plot
+
+ggsave(filename = str_c(dir_graphs, "/figure1/fig1d.pdf"), plot=fig1d_plot, width = plot_width, height = plot_height)
+ggsave(filename = str_c(dir_graphs, "/figure1/fig1d.png"), plot=fig1d_plot, width = plot_width, height = plot_height)
+```
+
+# Figure 2 - Machine learning approaches
+
+```{r fig2}
+## Evaluate overall model accuracy (loading models takes a long time)
+nn_fit <- readRDS(str_c(dir_data, "/models/nn_model.RDS"))
+knn_fit <- readRDS(str_c(dir_data, "/models/knn_model.RDS"))
+svm_fit <- readRDS(str_c(dir_data, "/models/svm_model.RDS"))
+df_train <- read_csv(str_c(dir_data, "/models/df_train.csv"))
+df_test <- read_csv(str_c(dir_data, "/models/df_train.csv"))
+
+# Calculating out of sample accuracy
+df_test_nn <- df_test %>% 
+  mutate(nn_class = predict(nn_fit, newdata = df_test, type = "raw"))
+nn_cm <- caret::confusionMatrix(table(df_test_nn$nn_class, df_test_nn$emotion))
+
+df_test_svm <- df_test %>% 
+  mutate(svm_class = predict(svm_fit, newdata = df_test, type = "raw"))
+svm_cm <- caret::confusionMatrix(table(df_test_svm$svm_class, df_test_svm$emotion))
+
+df_test_knn <- df_test %>% 
+  mutate(knn_class = predict(knn_fit, newdata = df_test, type = "raw"))
+knn_cm <- caret::confusionMatrix(table(df_test_knn$knn_class, df_test_knn$emotion))
+
+# Accuracy
+nn_cm$overall
+svm_cm$overall
+knn_cm$overall
+
+# Figures 2a - 2c: Model views
+## NN model view
+nn_emo_space <- expand.grid(valence = seq(-250, 250, by = 1), 
+                            arousal = seq(-250, 250, by = 1))
+nn_emo_space$class <- predict(nn_fit, newdata = nn_emo_space, type = "raw") # emo class
+
+fig2a_plot <- ggplot() + 
+  geom_point(data = nn_emo_space, aes(x = valence, y = arousal, color = class), size = 1, alpha = 1) + 
+  scale_x_continuous(name = "Valence", limits = c(-250, 250)) + 
+  scale_y_continuous(name = "Arousal", limits = c(-250, 250)) + 
+  geom_hline(yintercept = 0) + 
+  geom_vline(xintercept = 0) +
+  scale_color_discrete(name = "Predicted Emotion") +
+  theme_bw() + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+        axis.ticks = element_blank(), axis.text = element_blank(), text = element_text(size = 14), aspect.ratio = 1)
+fig2a_plot
+
+ggsave(filename=str_c(dir_graphs, "/figure2/model_vision/fig2a_nn.pdf"), fig2a_plot + theme(legend.position = "none"), width = 6, height = 6, useDingbats=F)
+ggsave(filename=str_c(dir_graphs, "/figure2/model_vision/fig2a_nn.png"), fig2a_plot + theme(legend.position = "none"), width = 6, height = 6)
+ggsave(filename=str_c(dir_graphs, "/figure2/model_vision/fig2_legend.pdf"), cowplot::get_legend(fig2a_plot), height = 6, useDingbats=F)
+
+# Figure 2d: Probabilistic representation for NN
+nn_emo_probs_raw <- expand.grid(valence = seq(-250, 250, by = 1), 
+                                arousal = seq(-250, 250, by = 1))
+nn_probs <- predict(nn_fit, newdata = nn_emo_probs_raw, type = "prob")
+
+nn_emo_probs <- bind_cols(nn_emo_probs_raw, nn_probs) %>%
+  pivot_longer(cols = afraid:surprised, names_to = "nn_emotion", values_to = "nn_probs")
+
+fig2d_plot <- ggplot(data = nn_emo_probs, aes(x = valence, y = arousal, color = nn_probs, group = nn_emotion)) + 
+  geom_point(size = 1) + 
+  scale_x_continuous(name = "Valence", limits = c(-250, 250)) + 
+  scale_y_continuous(name = "Arousal", limits = c(-250, 250)) + 
+  facet_wrap(~nn_emotion, ncol = 4) + 
+  geom_hline(yintercept = 0) + 
+  geom_vline(xintercept = 0) +
+  scale_color_gradient(low = "white", high = "blue", name = "NN Probability", labels = scales::percent) + 
+  theme_bw() +  
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+        axis.ticks = element_blank(), axis.text = element_blank(), text = element_text(size = 14), aspect.ratio = 1)
+fig2d_plot
+ggsave(filename=str_c(dir_graphs, "/figure2/model_vision/fig2d_nn.png"), fig2d_plot, width = 8, height = 8, limitsize=F)
+
+## KNN model view
+knn_emo_space <- expand.grid(valence = seq(-250, 250, by = 1), 
+                             arousal = seq(-250, 250, by = 1))
+knn_emo_space$class <- predict(knn_fit, newdata = knn_emo_space, type = "raw") # emo class
+
+fig2b_plot <- ggplot() + 
+  geom_point(data = knn_emo_space, aes(x = valence, y = arousal, color = class), size = 1, alpha = 1) + 
+  scale_x_continuous(name = "Valence", limits = c(-250, 250)) + 
+  scale_y_continuous(name = "Arousal", limits = c(-250, 250)) + 
+  geom_hline(yintercept = 0) + 
+  geom_vline(xintercept = 0) +
+  scale_color_discrete(name = "Predicted Emotion") +
+  theme_bw() + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+        axis.ticks = element_blank(), axis.text = element_blank(), text = element_text(size = 14), aspect.ratio = 1)
+fig2b_plot
+
+ggsave(filename=str_c(dir_graphs, "/figure2/model_vision/fig2b_knn.pdf"), fig2b_plot + theme(legend.position = "none"), width = 6, height = 6, useDingbats=F)
+ggsave(filename=str_c(dir_graphs, "/figure2/model_vision/fig2b_knn.png"), fig2b_plot + theme(legend.position = "none"), width = 6, height = 6)
+
+## SVM model view
+svm_emo_space <- expand.grid(valence = seq(-250, 250, by = 1), 
+                             arousal = seq(-250, 250, by = 1))
+svm_emo_space$class <- predict(svm_fit, newdata = svm_emo_space, type = "raw") # emo class
+
+fig2c_plot <- ggplot() + 
+  geom_point(data = svm_emo_space, aes(x = valence, y = arousal, color = class), size = 1, alpha = 1) + 
+  scale_x_continuous(name = "Valence", limits = c(-250, 250)) + 
+  scale_y_continuous(name = "Arousal", limits = c(-250, 250)) + 
+  geom_hline(yintercept = 0) + 
+  geom_vline(xintercept = 0) +
+  scale_color_discrete(name = "Predicted Emotion") +
+  theme_bw() + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+        axis.ticks = element_blank(), axis.text = element_blank(), text = element_text(size = 14), aspect.ratio = 1)
+fig2c_plot
+
+ggsave(filename=str_c(dir_graphs, "/figure2/model_vision/fig2c_svm.pdf"), fig2c_plot + theme(legend.position = "none"), width = 6, height = 6, useDingbats=F)
+ggsave(filename=str_c(dir_graphs, "/figure2/model_vision/fig2c_svm.png"), fig2c_plot + theme(legend.position = "none"), width = 6, height = 6)
+
+#rm(nn_fit) # optional
+#rm(knn_fit) # optional
+#rm(svm_fit) # optional
+```
+
+# Figure 3 - Emotion classification contours and densities
+
+```{r fig3}
+# Aesthetics
+emotion_list <- c("neutral", "surprised", "aroused", "peppy", "enthusiastic", "happy", "satisfied", "relaxed", "calm", "sleepy", "still", "quiet", "sluggish", "sad", "disappointed", "disgusted", "annoyed", "angry", "afraid", "nervous")
+
+emotion_theme <- theme_bw() + 
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(), 
+        aspect.ratio = 1, 
+        axis.text.x = element_text(size = 14), 
+        axis.text.y = element_text(size = 14),
+        axis.title = element_text(size = 24), 
+        legend.position = "none")
+
+# Fig3 data
+fig3_data <- df_emotion %>%
+  mutate(emotion = fct_relevel(emotion, emotion_list)) %>% ungroup()
+
+# Figure 3a - Contour Plots (separate density levels per plot)
+fig3a_list <- list()
+
+# Loop through each emotion dataset and make a contour plot
+for (i in 1:length(emotion_list)) {
+  # Filter data
+  plot_data <- fig3_data %>% filter(emotion == emotion_list[i]) 
+  
+  # Plot
+  plot <- ggplot(plot_data,  aes(x = valence, y = arousal, color = emotion)) + 
+    geom_density_2d() + 
+    geom_hline(yintercept = 0, color = "black") + 
+    geom_vline(xintercept = 0, color = "black") +
+    scale_color_manual(values = colorLabels$colour[i]) +  # pull colors from Figure 1
+    coord_fixed(ratio = 1) +
+    scale_y_continuous(limits = c(-250, 250)) + 
+    scale_x_continuous(limits = c(-250, 250)) + 
+    #scale_y_continuous(name = "Arousal", breaks = seq(-200, 200, by = 100)) +
+    #scale_x_continuous(name = "Valence", breaks = seq(-200, 200, by = 100)) +
+    ggtitle(emotion_list[i]) + 
+    theme_bw() + 
+    theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(), 
+          plot.margin = unit(c(-.1, -.1, -.1, -.1), "cm"),  # plot margins (top, right, bottom, left)
+          plot.title = element_text(hjust = 0.5, vjust = -1.5),   # center title, put on top of graph
+          axis.text = element_blank(), 
+          axis.ticks = element_blank(),
+          axis.title = element_blank(), 
+          legend.position = "none")
+  
+  # Add to list
+  fig3a_list[[i]] <- ggplotGrob(plot)
+}
+
+fig3a_plot <- cowplot::plot_grid(plotlist=fig3a_list, ncol=4)
+fig3a_plot
+ggsave(filename = str_c(dir_graphs, "/figure3/fig3a.pdf"), plot=fig3a_plot, width = 6, height = 6)
+
+# Figure 3b - 1D density
+fig3b_plot <- ggplot(fig3_data %>% pivot_longer(cols = c(valence, arousal), names_to = "measure", values_to = "value"),
+                      aes(x = value, y = emotion, fill = emotion)) +
+  ggridges::geom_density_ridges(scale = 3, alpha = 3/4, bandwidth = 18) +  # tweek to visualize
+  scale_x_continuous() +
+  facet_wrap(~measure) +
+  theme_bw(base_size=9) +
+  theme(axis.text = element_text(size = 14),
+        axis.title = element_text(size = 16),
+        strip.text = element_text(size = 14),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position = "none")
+fig3b_plot
+ggsave(filename = str_c(dir_graphs, "/figure3/fig3b.pdf"), plot=fig3b_plot, width = 6, height = 8)
+```
+
+# Figure 4 and Figure 6 - NN Emotion Classifications
+
+```{r fig4}
+# Requires model 
+nn_fit <- readRDS(str_c(dir_data, "/models/nn_model.RDS"))
+ug_nn <- predict(nn_fit, newdata = df_ug, type = "prob")
+df_ug_probs <- df_ug %>% bind_cols(ug_nn)
+rm(nn_fit) # helpful for memory
+
+# Fig4 data
+fig4a_data <- df_ug_probs %>%
+  select(sub, choice, afraid:surprised) %>%
+  pivot_longer(cols = -c(sub, choice), names_to = "nn_emotion", values_to = "nn_prob") %>%
+  group_by(choice, nn_emotion, sub) %>%
+  summarise(mean_prob_sub = mean(nn_prob)) %>%
+  group_by(choice, nn_emotion) %>% 
+  summarise(mean_prob = mean(mean_prob_sub), sd_prob = sd(mean_prob_sub), N = n(), se_prob = sd_prob / sqrt(N)) %>%
+  mutate(lwr = mean_prob - qt(1 - (0.05 / 2), N - 1) * se_prob,
+         upr = mean_prob + qt(1 - (0.05 / 2), N - 1) * se_prob, 
+         choice = case_when(choice == 0 ~ "Accept", choice == 1 ~ "Punish")) %>%
+  # Add numeric labels
+  mutate(label = str_c(as.character(round(mean_prob*100, 1)), "%"), 
+         y_label = mean_prob + .04)
+
+# Top emotions
+fig4a_data %>% mutate_if(is.numeric, round, 4) %>% group_by(choice) %>% arrange(desc(mean_prob))
+
+#### Figure 4a
+# Fig4a plot - probabilities by choice
+label_size <- 4
+label_color <- "dark gray"
+fig4a_plot <- ggplot(fig4a_data, aes(x = tidytext::reorder_within(nn_emotion, mean_prob, choice), y = mean_prob, fill = nn_emotion)) + 
+  geom_col(show.legend = FALSE) + 
+  geom_errorbar(aes(ymin = lwr, ymax = upr), width = .1) + 
+  geom_text(aes(label = label, y = y_label), color = label_color, size = label_size) + 
+  facet_wrap(~choice, scales = "free_y") + 
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1L), name = "Model Likelihood", limits = c(0, .20)) +
+  coord_flip() + 
+  tidytext::scale_x_reordered(name = "NN Emotion") + 
+  theme_classic() + 
+  theme(text = element_text(size = 14))
+fig4a_plot
+ggsave(filename=str_c(dir_graphs, "/figure4/fig4a.pdf"), fig4a_plot, width = 6, height = 4, useDingbats=F)
+
+# Fig4a t-tests
+fig4a_data_tests <- df_ug_probs %>%
+  select(sub, choice, afraid:surprised) %>%
+  pivot_longer(cols = -c(sub, choice), names_to = "nn_emotion", values_to = "nn_prob") %>%
+  group_by(choice, nn_emotion, sub) %>%
+  summarise(mean_prob_sub = mean(nn_prob)) %>%
+  mutate(choice = case_when(choice == 0 ~ "Accept", choice == 1 ~ "Punish")) %>% ungroup()
+
+## Top three vs angry
+fig4a_tests1 <- fig4a_data_tests %>%
+  filter(choice == "Punish", nn_emotion %in% c("sad", "angry")) %>%
+  t_test(mean_prob_sub ~ nn_emotion, paired = TRUE) %>%
+  add_significance() %>%
+  bind_cols(fig4a_data_tests %>% 
+             filter(choice == "Punish", nn_emotion %in% c("sad", "angry")) %>%
+             cohens_d(mean_prob_sub ~ nn_emotion, paired = TRUE) %>% select(effsize))
+
+fig4a_tests2 <- fig4a_data_tests %>%
+  filter(choice == "Punish", nn_emotion %in% c("disappointed", "angry")) %>%
+  t_test(mean_prob_sub ~ nn_emotion, paired = TRUE) %>%
+  add_significance() %>%
+  bind_cols(fig4a_data_tests %>% 
+             filter(choice == "Punish", nn_emotion %in% c("disappointed", "angry")) %>%
+             cohens_d(mean_prob_sub ~ nn_emotion, paired = TRUE) %>% select(effsize))
+
+fig4a_tests3 <- fig4a_data_tests %>%
+  filter(choice == "Punish", nn_emotion %in% c("disgusted", "angry")) %>%
+  t_test(mean_prob_sub ~ nn_emotion, paired = TRUE) %>%
+  add_significance() %>%
+  bind_cols(fig4a_data_tests %>% 
+             filter(choice == "Punish", nn_emotion %in% c("disgusted", "angry")) %>%
+             cohens_d(mean_prob_sub ~ nn_emotion, paired = TRUE) %>% select(effsize))
+
+fig4a_tests_all <- bind_rows(fig4a_tests1, fig4a_tests2, fig4a_tests3)
+fig4a_tests_all
+
+### Figure 4b - Delta (Punish - Choice) by Emotion
+fig4b_data <- df_ug_probs %>%
+  select(sub, choice, afraid:surprised) %>%
+  pivot_longer(cols = -c(sub, choice), names_to = "nn_emotion", values_to = "nn_prob") %>%
+  group_by(choice, nn_emotion, sub) %>%
+  summarise(mean_prob_sub = mean(nn_prob)) %>%
+  group_by(choice, nn_emotion) %>% 
+  summarise(mean_prob = mean(mean_prob_sub), sd_prob = sd(mean_prob_sub), N = n(), se_prob = sd_prob / sqrt(N)) %>%
+  mutate(lwr = mean_prob - qt(1 - (0.05 / 2), N - 1) * se_prob,
+         upr = mean_prob + qt(1 - (0.05 / 2), N - 1) * se_prob, 
+         choice = case_when(choice == 0 ~ "Accept", choice == 1 ~ "Punish")) %>%
+  # Delta
+  select(choice, nn_emotion, mean_prob) %>%
+  pivot_wider(names_from = choice, values_from = mean_prob) %>% 
+  group_by(nn_emotion) %>% 
+  mutate(delta = Punish - Accept) %>%
+  # Add numeric labels
+  mutate(label = str_c(as.character(round(delta*100, 1)), "%"), 
+         y_label = if_else(delta >= 0, delta + .03, delta - .03))
+
+# Fig 4b Plot
+fig4b_plot <- ggplot(fig4b_data, aes(x = reorder(nn_emotion, delta), y = delta, fill = nn_emotion)) + 
+  geom_col(show.legend = FALSE, position = position_dodge(.9)) + 
+  geom_text(aes(label = label, y = y_label), color = label_color, size = label_size) + 
+  scale_y_continuous(labels = scales::percent, name = "Model Likelihood (Punish - Accept)", expand = c(.03, .03)) +
+  xlab("NN Emotion") + 
+  theme_classic() + 
+  coord_flip() + 
+  theme(text = element_text(size = 14))
+fig4b_plot
+ggsave(filename=str_c(dir_graphs, "/figure4/fig4b.pdf"), fig4b_plot, width = 6, height = 4, useDingbats=F)
+
+### Fig 4 All
+fig4_plot <- cowplot::plot_grid(fig4a_plot, fig4b_plot, labels = c("A", "B"), nrow = 1, rel_widths = c(3, 2))
+ggsave(filename=str_c(dir_graphs, "/figure4/fig4.pdf"), fig4_plot, width = 10, height = 4, useDingbats=F)
+
+### Figure 6 - Unfairness
+# fig6 data
+fig6_data <- df_ug_probs %>%
+  select(sub, choice, afraid:surprised, unfairness) %>%
+  pivot_longer(cols = -c(sub, choice, unfairness), names_to = "nn_emotion", values_to = "nn_prob") %>%
+  group_by(choice, nn_emotion, sub, unfairness) %>%
+  summarise(mean_prob_sub = mean(nn_prob)) %>%
+  mutate(choice = case_when(choice == 0 ~ "Accept", choice == 1 ~ "Punish")) %>%
+  group_by(choice, nn_emotion, unfairness) %>%
+  summarise(mean_prob = mean(mean_prob_sub))
+
+# Top emotion per unfairness bin for punish
+fig6_data %>% mutate_if(is.numeric, round, 4) %>% filter(choice == "Punish") %>% group_by(unfairness) %>% top_n(mean_prob, n = 1) %>% arrange(desc(unfairness))
+
+# Top emotions for highest unfairness
+fig6_data %>% mutate_if(is.numeric, round, 4) %>% filter(choice == "Punish", unfairness == .95) %>% arrange(desc(mean_prob))
+
+# Fig 6 Plot
+fig6_plot <- ggplot(fig6_data, aes(x = unfairness, y = mean_prob, fill = nn_emotion)) + 
+  geom_bar(position = "fill", stat = "identity") + 
+  facet_wrap( ~ choice) + 
+  xlab("Unfairness") + 
+  scale_y_continuous(labels = scales::percent, name = "Proportion") + 
+  theme_classic() + 
+  theme(text = element_text(size = 14))
+fig6_plot
+ggsave(filename=str_c(dir_graphs, "/figure6/fig6.pdf"), fig6_plot, width = 8, height = 6, useDingbats=F)
+
+# t-test for fairness
+fig6_data_tests <- df_ug_probs %>%
+  select(sub, choice, afraid:surprised, unfairness) %>%
+  pivot_longer(cols = -c(sub, choice, unfairness), names_to = "nn_emotion", values_to = "nn_prob") %>%
+  group_by(choice, nn_emotion, sub, unfairness) %>%
+  summarise(mean_prob_sub = mean(nn_prob)) %>%
+  mutate(choice = case_when(choice == 0 ~ "Accept", choice == 1 ~ "Punish")) %>% ungroup()
+
+fig6_tests1 <- fig6_data_tests %>%
+  filter(choice == "Punish", unfairness == .95, nn_emotion %in% c("sad", "angry")) %>%
+  t_test(mean_prob_sub ~ nn_emotion, paired = TRUE) %>%
+  add_significance() %>%
+  bind_cols(fig6_data_tests %>% 
+             filter(choice == "Punish", unfairness == .95, nn_emotion %in% c("sad", "angry")) %>%
+             cohens_d(mean_prob_sub ~ nn_emotion, paired = TRUE) %>% select(effsize))
+
+fig6_tests2 <- fig6_data_tests %>%
+  filter(choice == "Punish", unfairness == .95, nn_emotion %in% c("disgusted", "angry")) %>%
+  t_test(mean_prob_sub ~ nn_emotion, paired = TRUE) %>%
+  add_significance() %>%
+  bind_cols(fig6_data_tests %>% 
+             filter(choice == "Punish", unfairness == .95, nn_emotion %in% c("disgusted", "angry")) %>%
+             cohens_d(mean_prob_sub ~ nn_emotion, paired = TRUE) %>% select(effsize))
+
+fig6_tests_all <- bind_rows(fig6_tests1, fig6_tests2)
+fig6_tests_all
+```
+
+# Figure 5 - KMeans Clustering Approach
+
+```{r fig5}
+# Requires model 
+kmeans_fit <- readRDS(str_c(dir_data, "/models/kmeans_model.RDS"))
+
+# Fig5a: What K-means "sees"
+fig5a_data <- expand.grid(valence = seq(-250, 250, by = 1), 
+                         arousal = seq(-250, 250, by = 1))
+fig5a_data$class <- clue::cl_predict(kmeans_fit, newdata = fig5a_data)
+
+fig5a_plot <- ggplot() + 
+  geom_point(data = fig5a_data, aes(x = valence, y = arousal, color = as.factor(class)), size = 1, alpha = 1) + 
+  scale_x_continuous(name = "Valence", limits = c(-250, 250)) + 
+  scale_y_continuous(name = "Arousal", limits = c(-250, 250)) + 
+  geom_hline(yintercept = 0) + 
+  geom_vline(xintercept = 0) +
+  scale_color_discrete(name = "Predicted Class") +
+  theme_bw() +  
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+        axis.ticks = element_blank(), axis.text = element_blank(), text = element_text(size = 14), aspect.ratio = 1)
+fig5a_plot
+ggsave(filename=str_c(dir_graphs, "/figure5/fig5a.pdf"), fig5a_plot + theme(legend.position = "none"), width = 6, height = 6, useDingbats=F)
+ggsave(filename=str_c(dir_graphs, "/figure5/fig5a.png"), fig5a_plot + theme(legend.position = "none"), width = 6, height = 6)
+
+
+# Fig5b: Modal emotion in each region
+df_emotion$kmean_cluster <-  clue::cl_predict(kmeans_fit, newdata = df_emotion[,c("valence", "arousal")])
+
+# Reference totals
+ref_totals <- df_emotion %>%
+  group_by(kmean_cluster, emotion) %>%
+  count() %>% 
+  group_by(kmean_cluster) %>% 
+  summarise(total = sum(n))
+
+fig5b_data <- df_emotion %>%
+  group_by(kmean_cluster, emotion) %>%
+  count() %>% 
+  group_by(kmean_cluster) %>% 
+  slice_max(order_by = n, n = 1) %>%
+  left_join(., ref_totals, by = "kmean_cluster") %>%
+  mutate(prop = n / total) %>%
+  # Add labels
+  mutate(label = str_c(as.character(round(prop*100, 1)), "%"), 
+         y_label = prop + .02)
+
+label_size <- 4
+label_color <- "dark gray"
+
+fig5b_plot <- ggplot(data = fig5b_data, aes(x = as.factor(kmean_cluster), y = prop, fill = as.factor(kmean_cluster))) + 
+  geom_col() +
+  geom_text(aes(label = label, y = y_label), color = label_color, size = label_size-1) + 
+  xlab(label = "KMeans Cluster") + 
+  scale_y_continuous(name = "% of Cluster", label = scales::percent) + 
+  scale_fill_discrete(name = "Modal Emotion") +
+  theme_classic() + 
+  theme(text = element_text(size = 26))
+fig5b_plot
+ggsave(filename=str_c(dir_graphs, "/figure5/fig5b.pdf"), fig5b_plot, width = 8, height = 4, useDingbats=F)
+
+
+# Fig5c: Ultimatum Game Results
+ug_kmeans <- clue::cl_predict(kmeans_fit, newdata = df_ug[c("valence", "arousal")], type = "class_ids")
+df_ug_probs <- df_ug %>% mutate(kmeans_cluster = ug_kmeans)
+
+fig5c_data <- df_ug_probs %>%
+  group_by(choice, kmeans_cluster) %>%
+  summarise(N = n()) %>%
+  mutate(freq = N / sum(N), 
+         choice = case_when(choice == 0 ~ "Accept", 
+                            choice == 1 ~ "Punish")) %>%
+  # Add labels
+  mutate(label = str_c(as.character(round(freq*100, 1)), "%"), 
+         y_label = freq + .06)
+
+# Plot
+fig5c_plot <- ggplot(fig5c_data, 
+                     aes(x = tidytext::reorder_within(kmeans_cluster, freq, choice), y = freq, fill = as.factor(kmeans_cluster))) + 
+  geom_col(show.legend = FALSE) + 
+  geom_text(aes(label = label, y = y_label), color = label_color, size = label_size) + 
+  facet_wrap(~choice, scales = "free_y") + 
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1L), name = "Frequency", limits = c(0, .5)) +
+  coord_flip() + 
+  tidytext::scale_x_reordered(name = "KMeans Cluster") + 
+  theme_classic() + 
+  theme(text = element_text(size = 14))
+fig5c_plot
+ggsave(filename=str_c(dir_graphs, "/figure5/fig5c.pdf"), fig5c_plot, width = 6, height = 4, useDingbats=F)
+
+# Tests
+## Punish
+kmeans_t1 <- as.table(rbind(c(1612, 831))) # Punish 3 vs Punish 1
+dimnames(kmeans_t1) <- list(irrelevant = c("A"), cluster = c("3", "1"))
+chisq.test(kmeans_t1)
+
+## Accept
+kmeans_t2 <- as.table(rbind(c(3865, 2103))) # Accept 5 vs Accept 2
+dimnames(kmeans_t2) <- list(irrelevant = c("A"), cluster = c("5", "2"))
+chisq.test(kmeans_t2)
+```
+
+# Euclidean distance analysis
+
+```{r euclid}
+# Calculate, participant-by-participant, the Euclidean distance between their emotion classification words and UG
+dist_trial <- function(df_emotion_sub, trial_valence, trial_arousal) {
+  
+  probs <- df_emotion_sub %>% 
+    mutate(dist = sqrt((valence - {{trial_valence}}) ^ 2 + (arousal - {{trial_arousal}}) ^ 2), # calculate distance
+           dist = case_when(dist == 0 ~ 1, 
+                            dist != 0 ~ dist), # Minimum distance needs to be one to avoid issues calculating prob
+           prob = (1 / dist) / sum((1 / dist))) %>%    # calculate probability based on inverse (1 / distance) / (sum (1 / distance))
+    select(emotion, prob) %>% 
+    pivot_wider(names_from = emotion, values_from = prob)
+  
+  return(probs)
+}
+
+dist_analysis <- function(df_emotion_sub, df_behavior_sub) {
+  
+  ## Inputs: 
+  # df_emotion_sub is all subject data for emotion classification task 
+  # df_behavior_sub is all subject data for the behavioral game (ug, pd, or pgg) 
+  
+  # Initialize list
+  data_list <- list() 
+  
+  for (row in 1:nrow(df_behavior_sub)) {
+    trial_probs <- dist_trial(df_emotion_sub, trial_valence = df_behavior_sub$valence[row], trial_arousal = df_behavior_sub$arousal[row])
+    data_list[[row]] <- trial_probs # add to list 
+  }
+  
+  # Output
+  df_probs <- do.call(rbind, data_list)
+  return(df_probs)
+}
+
+# Ultimatum Game
+df_euclidean_ug <- df_emotion %>% 
+  filter(study == "ug") %>% 
+  nest(data_emo = -sub) %>% 
+  left_join(df_ug %>% nest(data_ug = -sub), by = "sub") %>% 
+  group_by(sub) %>% 
+  mutate(probs = map2(.x = data_emo, .y = data_ug, .f = dist_analysis)) %>%
+  unnest(cols = c(data_ug, probs)) %>%
+  select(-data_emo)
+
+## Results
+euclid_data <- df_euclidean_ug %>%
+  select(sub, choice, annoyed:sad) %>%
+  pivot_longer(cols = -c(sub, choice), names_to = "euclid_emotion", values_to = "euclid_prob") %>%
+  group_by(choice, euclid_emotion, sub) %>%
+  summarise(mean_prob_sub = mean(euclid_prob)) %>%
+  group_by(choice, euclid_emotion) %>% 
+  summarise(mean_prob = mean(mean_prob_sub), sd_prob = sd(mean_prob_sub), N = n(), se_prob = sd_prob / sqrt(N)) %>%
+  mutate(lwr = mean_prob - qt(1 - (0.05 / 2), N - 1) * se_prob,
+         upr = mean_prob + qt(1 - (0.05 / 2), N - 1) * se_prob, 
+         choice = case_when(choice == 0 ~ "Accept", choice == 1 ~ "Punish"))
+
+# T-tests
+euclid_data_tests <- df_euclidean_ug %>%
+  select(sub, choice, annoyed:sad) %>%
+  pivot_longer(cols = -c(sub, choice), names_to = "euclid_emotion", values_to = "euclid_prob") %>%
+  group_by(choice, euclid_emotion, sub) %>%
+  summarise(mean_prob_sub = mean(euclid_prob)) %>%
+  mutate(choice = case_when(choice == 0 ~ "Accept", choice == 1 ~ "Punish")) %>% ungroup()
+
+## Top three vs angry
+euclid_tests1 <- euclid_data_tests %>%
+  filter(choice == "Punish", euclid_emotion %in% c("disgusted", "angry")) %>%
+  t_test(mean_prob_sub ~ euclid_emotion, paired = TRUE) %>%
+  add_significance() %>%
+  bind_cols(euclid_data_tests %>% 
+             filter(choice == "Punish", euclid_emotion %in% c("disgusted", "angry")) %>%
+             cohens_d(mean_prob_sub ~ euclid_emotion, paired = TRUE) %>% select(effsize))
+
+euclid_tests2 <- euclid_data_tests %>%
+  filter(choice == "Punish", euclid_emotion %in% c("disappointed", "angry")) %>%
+  t_test(mean_prob_sub ~ euclid_emotion, paired = TRUE) %>%
+  add_significance() %>%
+  bind_cols(euclid_data_tests %>% 
+             filter(choice == "Punish", euclid_emotion %in% c("disappointed", "angry")) %>%
+             cohens_d(mean_prob_sub ~ euclid_emotion, paired = TRUE) %>% select(effsize))
+
+euclid_tests_all <- bind_rows(euclid_tests1, euclid_tests2)
+euclid_tests_all
+```
+
+# See Supplement Analysis for PD and PGG
