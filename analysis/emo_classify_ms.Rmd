@@ -18,7 +18,7 @@ To install these packages simply use the `install.packages()` function and put e
 
 **Note**: If you've already used the `here()` function in another script, you will have to open a new instance of R to ensure the relative paths works for this script (or manually change the paths).
 
-The order of this Markdown will follow the order of results in the Supplement which is published in [TO DO] at the following [DOI]().
+The order of this Markdown will follow the order of results in the Manuscript which is published in Nature Communications at the following [DOI]().
 
 ```{r setup, include=FALSE}
 # Knitr options
@@ -47,7 +47,6 @@ library(ggridges)     # density plot
 # Specify relative paths
 dir_analysis <- here()
 dir_parent <- str_remove(dir_analysis, "/analysis")
-dir_raw_data <- str_c(dir_parent, "/data/raw")
 dir_clean_data <- str_c(dir_parent, "/data/behavioral")
 dir_models <- str_c(dir_parent, "/data/oscar")
 dir_data <- str_c(dir_parent, "/data")
@@ -115,17 +114,14 @@ head(df_emotion) %>%
 head(df_ug) %>%
   kable(caption = "Ultimatum Game Glimpse") %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
-length(unique(df_ug$sub))
 
 head(df_pd) %>%
   kable(caption = "Prisoners' Dilemma Glimpse") %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
-length(unique(df_pd$sub))
 
 head(df_pgg) %>%
   kable(caption = "Public Goods Game Glimpse") %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
-length(unique(df_pgg$sub))
 ```
 
 # Figure 1 - Methods
