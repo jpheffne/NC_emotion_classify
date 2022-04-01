@@ -1,7 +1,7 @@
 # NC_emotion_classify
 Behavioral data and analysis script for "A probabilistic map of emotional experiences during competitive social interactions"
 
-The manuscript is published in Nature Communications at the following doi: [to add]
+The manuscript is published in Nature Communications at the following [doi](https://doi.org/10.1038/s41467-022-29372-8).
 
 # Setup
 Clone repository or simply download in a zip file. 
@@ -33,7 +33,7 @@ This repo contains the following folders: analysis, data, and graphs.
 
 2. **data**
 
-   Cleaned data can be found here. **Note** Model files are too large to host in Github but can be found in an OSF repository [here](https://osf.io/543yw/). You'll want to place these in the `data/models/` folder or change the path locations in the analysis script.
+   Cleaned data can be found here. **Note** Model files are too large to host in Github but can be found in an OSF repository [here](https://osf.io/543yw/). OSF is currently having issues uploading files so I will be uploading these soon. You'll want to place these in the `data/models/` folder or change the path locations in the analysis script.
 
 3. **graphs**
 
