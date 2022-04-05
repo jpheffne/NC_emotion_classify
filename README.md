@@ -33,7 +33,7 @@ This repo contains the following folders: analysis, data, and graphs.
 
 2. **data**
 
-   Cleaned data can be found here. **Note** Model files are too large to host in Github but can be found in an OSF repository [here](https://osf.io/543yw/). Please download everything from the OSF repository and the associated Google Drive file (nn_model, which was too large to host on OSF). You'll want to place these in the `data/models/` folder or change the path locations in the analysis script.
+   Cleaned data can be found here. Model files are too large to host in Github but can be found in an OSF repository [here](https://osf.io/543yw/). Please download everything from the OSF repository and the associated Google Drive file (nn_model, which was too large to host on OSF). You'll want to place these in the `data/models/` folder or change the path locations in the analysis script.
 
 3. **graphs**
 
